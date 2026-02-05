@@ -31,8 +31,10 @@ func ShowAdminMenu() string {
 	prompt := promptui.Select{
 		Label: "Admin Menu",
 		Items: []string{
+			"Update User Membership",
 			"View Revenue",
 			"Report Broken PS",
+			"View PS Condition",
 			"Exit",
 		},
 	}
