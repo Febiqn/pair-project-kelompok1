@@ -420,7 +420,175 @@ func checkTime() {
 }
 
 func payBill() {
-	fmt.Println("PAY")
+	if db == nil {
+		fmt.Println("Database not initialized")
+		return
+	}
+
+	// ========================
+	// FETCH UNPAID RENTALS
+	// ========================
+	rows, err := db.Query(`
+		SELECT
+			r.rental_id,
+			r.user_name,
+			r.ps_id,
+			r.ps_name,
+			r.duration_hours,
+			r.membership_status
+		FROM rentals r
+		JOIN billing b ON r.rental_id = b.rental_id
+		WHERE r.status = 'ONGOING'
+		  AND b.bill_status = 'UNPAID'
+	`)
+	if err != nil {
+		fmt.Println("Failed to fetch unpaid rentals:", err)
+		return
+	}
+	defer rows.Close()
+
+	type Rental struct {
+		ID       int
+		UserName string
+		PsID     int
+		PsName   string
+		Duration int
+		Member   string
+	}
+
+	var rentals []Rental
+	var items []string
+
+	for rows.Next() {
+		var r Rental
+		rows.Scan(
+			&r.ID,
+			&r.UserName,
+			&r.PsID,
+			&r.PsName,
+			&r.Duration,
+			&r.Member,
+		)
+
+		rentals = append(rentals, r)
+		items = append(items, fmt.Sprintf(
+			"%s - %s (%d hrs)",
+			r.UserName,
+			r.PsName,
+			r.Duration,
+		))
+	}
+
+	if len(rentals) == 0 {
+		fmt.Println("❌ No unpaid rentals")
+		return
+	}
+
+	// ========================
+	// SELECT RENTAL
+	// ========================
+	selectPrompt := promptui.Select{
+		Label: "Select rental to pay",
+		Items: items,
+	}
+
+	index, _, err := selectPrompt.Run()
+	if err != nil {
+		fmt.Println("Cancelled")
+		return
+	}
+
+	selected := rentals[index]
+
+	// ========================
+	// CALCULATE BILL
+	// ========================
+	baseAmount := float64(selected.Duration * 10000)
+	discount := 0.0
+
+	if selected.Member == "ACTIVE" {
+		discount = baseAmount * 0.10
+	}
+
+	finalAmount := baseAmount - discount
+
+	// ========================
+	// SHOW BILL SUMMARY
+	// ========================
+	fmt.Println("\nTOTAL BILL")
+	fmt.Println("User        :", selected.UserName)
+	fmt.Println("PlayStation :", selected.PsName)
+	fmt.Println("Duration    :", selected.Duration, "hours")
+	fmt.Println("Base Price  : Rp", baseAmount)
+	fmt.Println("Discount    : Rp", discount)
+	fmt.Println("Total Pay   : Rp", finalAmount)
+
+	confirmPrompt := promptui.Select{
+		Label: "Confirm payment?",
+		Items: []string{"Yes", "Cancel"},
+	}
+
+	_, confirm, _ := confirmPrompt.Run()
+	if confirm == "Cancel" {
+		fmt.Println("Payment cancelled")
+		return
+	}
+
+	// ========================
+	// TRANSACTION
+	// ========================
+	tx, err := db.Begin()
+	if err != nil {
+		fmt.Println("Transaction failed:", err)
+		return
+	}
+
+	// UPDATE BILLING
+	_, err = tx.Exec(`
+		UPDATE billing
+		SET total_amount = ?,
+		    bill_status = 'PAID',
+		    paid_at = NOW()
+		WHERE rental_id = ?
+	`, finalAmount, selected.ID)
+
+	if err != nil {
+		tx.Rollback()
+		fmt.Println("Failed to update billing:", err)
+		return
+	}
+
+	// COMPLETE RENTAL
+	_, err = tx.Exec(`
+		UPDATE rentals
+		SET status = 'COMPLETED'
+		WHERE rental_id = ?
+	`, selected.ID)
+
+	if err != nil {
+		tx.Rollback()
+		fmt.Println("Failed to complete rental:", err)
+		return
+	}
+
+	// RELEASE PLAYSTATION
+	_, err = tx.Exec(`
+		UPDATE playstations
+		SET condition_status = 'AVAILABLE'
+		WHERE ps_id = ?
+	`, selected.PsID)
+
+	if err != nil {
+		tx.Rollback()
+		fmt.Println("Failed to release PlayStation:", err)
+		return
+	}
+
+	tx.Commit()
+
+	fmt.Println("\n✔ Payment successful")
+	fmt.Println("✔ Rental completed")
+	fmt.Println("✔ PlayStation is now AVAILABLE")
 }
 
 func generateMembershipNumber() string {

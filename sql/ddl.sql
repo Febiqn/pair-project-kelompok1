@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS billing (
     bill_id INT AUTO_INCREMENT PRIMARY KEY,
     rental_id INT NOT NULL,
     total_amount DECIMAL(10,2),
+    bill_status ENUM('UNPAID','PAID') DEFAULT 'UNPAID',
+    paid_at DATETIME NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (rental_id) REFERENCES rentals(rental_id)
 );
