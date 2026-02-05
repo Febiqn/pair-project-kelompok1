@@ -16,6 +16,7 @@ func ShowUserMenu() string {
 		Label: "User Menu",
 		Items: []string{
 			"Register Membership",
+			"Check Membership",
 			"Rent PlayStation",
 			"Check Time Left",
 			"Exit",

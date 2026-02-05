@@ -2,26 +2,22 @@ package config
 
 import (
 	"database/sql"
-	"fmt"
+	"log"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
-func ConnectDB() {
+func ConnectDB() *sql.DB {
+	dsn := "appuser:app123@tcp(localhost:3306)/?parseTime=true"
 
-	db, err := sql.Open("mysql", "appuser:app123@tcp(localhost:3306)/rental?parseTime=true")
+	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-	defer db.Close()
-
-	err = db.Ping()
-	if err != nil {
-		fmt.Println("Failed to connect to DB")
-		fmt.Println(err.Error())
-		return
+		log.Fatal(err)
 	}
 
-	fmt.Println("Success connect to DB")
+	if err := db.Ping(); err != nil {
+		log.Fatal(err)
+	}
+
+	return db
 }

@@ -1,8 +1,18 @@
 package main
 
-import "pair-project-kelompok1/handler"
+import (
+	"pair-project-kelompok1/config"
+	"pair-project-kelompok1/handler"
+)
 
 func main() {
+	db := config.ConnectDB()
+	defer db.Close()
+
+	config.RunMigration(db)
+
+	handler.InitDB(db)
+
 	for {
 		role := handler.RoleMenu()
 
