@@ -54,3 +54,25 @@ func PrintReportPS(ReportPS []ReportPS) {
 	_ = table.Bulk(data[1:])
 	_ = table.Render()
 }
+
+type ConditionPS struct {
+	PlaystationName string
+	Condition       string
+}
+
+func PrintViewPSCondition(ConditionPS []ConditionPS) {
+	data := [][]string{
+		{"Name", "Condition"},
+	}
+
+	for _, v := range ConditionPS {
+		addData := []string{
+			v.PlaystationName, v.Condition}
+		data = append(data, addData)
+	}
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.Header(data[0])
+	_ = table.Bulk(data[1:])
+	_ = table.Render()
+}
