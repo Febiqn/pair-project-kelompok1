@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"math/rand"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/manifoldco/promptui"
@@ -53,17 +55,18 @@ func registerUser() {
 		return
 	}
 
-	status := "INACTIVE"
-	var memberNo *string
-
-	if choice == "Yes" {
-		status = "ACTIVE"
-		no := generateMembershipNumber()
-		memberNo = &no
+	// ❌ If user does NOT want membership → DO NOTHING
+	if choice == "No" {
+		fmt.Println("Membership not activated. Registration cancelled.")
+		return
 	}
 
+	// ✅ Only reach here if user chose YES
+	status := "ACTIVE"
+	memberNo := generateMembershipNumber()
+
 	query := `
-		INSERT INTO users (name, membership_status, membership_number)
+		INSERT INTO users (user_name, membership_status, membership_number)
 		VALUES (?, ?, ?)
 	`
 
@@ -73,11 +76,8 @@ func registerUser() {
 		return
 	}
 
-	fmt.Println("✔ User registered successfully")
-	fmt.Println("✔ Membership status:", status)
-	if memberNo != nil {
-		fmt.Println("✔ Membership number:", *memberNo)
-	}
+	fmt.Println("✔ Membership registered successfully")
+	fmt.Println("✔ Membership number:", memberNo)
 }
 
 func checkMember() {
@@ -108,7 +108,7 @@ func checkMember() {
 	query := `
 		SELECT user_id, membership_status
 		FROM users
-		WHERE name = ? AND membership_number = ?
+		WHERE user_name = ? AND membership_number = ?
 	`
 
 	err = db.QueryRow(query, name, memberNo).Scan(&userID, &status)
@@ -143,11 +143,280 @@ func checkMember() {
 }
 
 func rentPS() {
-	fmt.Println("RENTE")
+	if db == nil {
+		fmt.Println("Database not initialized")
+		return
+	}
+
+	rolePrompt := promptui.Select{
+		Label: "Are you a member?",
+		Items: []string{"Yes", "No"},
+	}
+
+	_, role, err := rolePrompt.Run()
+	if err != nil {
+		fmt.Println("Cancelled")
+		return
+	}
+
+	var (
+		userID           int
+		userName         string
+		membershipStatus string
+	)
+
+	if role == "Yes" {
+		memberPrompt := promptui.Prompt{
+			Label: "Enter membership number (PS-??)",
+		}
+
+		memberNo, err := memberPrompt.Run()
+		if err != nil {
+			fmt.Println("Cancelled")
+			return
+		}
+
+		err = db.QueryRow(`
+			SELECT user_id, user_name, membership_status
+			FROM users
+			WHERE membership_number = ?
+			  AND membership_status = 'ACTIVE'
+		`, memberNo).Scan(&userID, &userName, &membershipStatus)
+
+		if err == sql.ErrNoRows {
+			fmt.Println("Active member not found")
+			return
+		} else if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+	}
+
+	if role == "No" {
+		name, err := promptName()
+		if err != nil {
+			fmt.Println("Cancelled")
+			return
+		}
+
+		res, err := db.Exec(`
+			INSERT INTO users (user_name, membership_status)
+			VALUES (?, 'INACTIVE')
+		`, name)
+
+		if err != nil {
+			fmt.Println("Failed to register non-member:", err)
+			return
+		}
+
+		id, _ := res.LastInsertId()
+		userID = int(id)
+		userName = name
+		membershipStatus = "INACTIVE"
+	}
+
+	rows, err := db.Query(`
+		SELECT ps_id, ps_name
+		FROM playstations
+		WHERE condition_status = 'AVAILABLE'
+	`)
+	if err != nil {
+		fmt.Println("Failed to fetch PlayStations:", err)
+		return
+	}
+	defer rows.Close()
+
+	type PS struct {
+		ID   int
+		Name string
+	}
+
+	var psList []PS
+	var psNames []string
+
+	for rows.Next() {
+		var ps PS
+		rows.Scan(&ps.ID, &ps.Name)
+		psList = append(psList, ps)
+		psNames = append(psNames, ps.Name)
+	}
+
+	if len(psList) == 0 {
+		fmt.Println("No PlayStation available")
+		return
+	}
+
+	psPrompt := promptui.Select{
+		Label: "Select PlayStation",
+		Items: psNames,
+	}
+
+	index, _, err := psPrompt.Run()
+	if err != nil {
+		fmt.Println("Cancelled")
+		return
+	}
+
+	psID := psList[index].ID
+	psName := psList[index].Name
+
+	durationPrompt := promptui.Prompt{
+		Label: "Enter rental duration (hours)",
+		Validate: func(input string) error {
+			val, err := strconv.Atoi(strings.TrimSpace(input))
+			if err != nil || val <= 0 {
+				return fmt.Errorf("Enter a valid number")
+			}
+			return nil
+		},
+	}
+
+	durationStr, err := durationPrompt.Run()
+	if err != nil {
+		fmt.Println("Cancelled")
+		return
+	}
+
+	duration, _ := strconv.Atoi(durationStr)
+
+	startTime := time.Now()
+	endTime := startTime.Add(time.Duration(duration) * time.Hour)
+	baseAmount := float64(duration * 10000)
+
+	tx, err := db.Begin()
+	if err != nil {
+		fmt.Println("Transaction failed:", err)
+		return
+	}
+
+	// INSERT RENTAL
+	res, err := tx.Exec(`
+		INSERT INTO rentals (
+			user_id,
+			user_name,
+			ps_id,
+			ps_name,
+			membership_status,
+			start_time,
+			duration_hours,
+			end_time
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, userID, userName, psID, psName, membershipStatus, startTime, duration, endTime)
+
+	if err != nil {
+		tx.Rollback()
+		fmt.Println("Failed to create rental:", err)
+		return
+	}
+
+	rentalID, _ := res.LastInsertId()
+
+	_, err = tx.Exec(`
+		UPDATE playstations
+		SET condition_status = 'RENTED'
+		WHERE ps_id = ?
+	`, psID)
+
+	if err != nil {
+		tx.Rollback()
+		fmt.Println("Failed to update PlayStation:", err)
+		return
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO billing (rental_id, total_amount)
+		VALUES (?, ?)
+	`, rentalID, baseAmount)
+
+	if err != nil {
+		tx.Rollback()
+		fmt.Println("Failed to create billing:", err)
+		return
+	}
+
+	tx.Commit()
+
+	fmt.Println("\n✔ Rental successful")
+	fmt.Println("User       :", userName)
+	fmt.Println("Membership :", membershipStatus)
+	fmt.Println("PlayStation:", psName)
+	fmt.Println("Start      :", startTime.Format("2006-01-02 15:04"))
+	fmt.Println("End        :", endTime.Format("2006-01-02 15:04"))
+	fmt.Println("Base Price : Rp", baseAmount)
 }
 
 func checkTime() {
-	fmt.Println("CHECK")
+	if db == nil {
+		fmt.Println("Database not initialized")
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT
+			r.rental_id,
+			r.ps_name,
+			r.end_time
+		FROM rentals r
+		WHERE r.status = 'ONGOING'
+	`)
+	if err != nil {
+		fmt.Println("Failed to fetch ongoing rentals:", err)
+		return
+	}
+	defer rows.Close()
+
+	type Rental struct {
+		ID      int
+		PsName  string
+		EndTime time.Time
+	}
+
+	var rentals []Rental
+	var psNames []string
+
+	for rows.Next() {
+		var r Rental
+		rows.Scan(&r.ID, &r.PsName, &r.EndTime)
+		rentals = append(rentals, r)
+		psNames = append(psNames, r.PsName)
+	}
+
+	if len(rentals) == 0 {
+		fmt.Println("No ongoing rentals")
+		return
+	}
+
+	psPrompt := promptui.Select{
+		Label: "Select PlayStation",
+		Items: psNames,
+	}
+
+	index, _, err := psPrompt.Run()
+	if err != nil {
+		fmt.Println("Cancelled")
+		return
+	}
+
+	selected := rentals[index]
+
+	// ========================
+	// CALCULATE TIME LEFT
+	// ========================
+	remaining := time.Until(selected.EndTime)
+
+	if remaining <= 0 {
+		fmt.Println("⏰ Rental time has ended")
+		return
+	}
+
+	minutesLeft := int(remaining.Minutes())
+
+	// ========================
+	// DISPLAY
+	// ========================
+	fmt.Println("\n⏳ Time Remaining")
+	fmt.Printf("%d minutes\n", minutesLeft)
 }
 
 func payBill() {

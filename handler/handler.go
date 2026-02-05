@@ -19,6 +19,7 @@ func ShowUserMenu() string {
 			"Check Membership",
 			"Rent PlayStation",
 			"Check Time Left",
+			"Pay Bill",
 			"Exit",
 		},
 	}
