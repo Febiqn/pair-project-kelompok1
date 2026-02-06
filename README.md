@@ -1,28 +1,47 @@
 # pair-project-kelompok1
 
 ### User Feature =
-register membership
+1.Register Membership
 
-user do CRUD
+2.User Can Delete Membership
 
-Nyewa PS
+3.Renting PS System
 
-Cek Waktu
+4.Check Time
 
-Billing system
+5.Billing System
 
 ### Admin feature =
-report ps yang diservice atau kebutuhan lain buat rental
+1.View Revenue
 
-report membership user ( bisa delete atau change Member jd non member )
+2.Report Broken PS
 
-report pendapatan harian dan bulanan 
+3.View PS Condition
 
-Release 4 - Fix registerUser if No membership data wont be added to DB , add rent ps function and check time
+### Command you need to run
 
+to start MySQL
+
+`bash
+sudo service mysql start
+`
+`bash
+sudo service mysql status
+`
+
+to access MySQL
+
+`bash
+sudo mysql -u root -p
+`
+
+insert the playstations
+
+`bash
 INSERT INTO playstations (ps_name) VALUES
 ('PS-A'), 
 ('PS-B'), 
 ('PS-C'), 
 ('PS-D'), 
 ('PS-E'); 
+`
