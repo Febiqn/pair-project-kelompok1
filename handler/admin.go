@@ -36,7 +36,7 @@ func UpdateMembershipQuery(db *sql.DB, memberStatus string, targetMember string)
 	}
 
 	// Menggunakan LOWER untuk pencarian case-insensitive agar lebih user-friendly
-	query := `UPDATE users SET membership_status = ? WHERE LOWER(TRIM(name)) = LOWER(?)`
+	query := `UPDATE users SET membership_status = ? WHERE LOWER(TRIM(user_name)) = LOWER(?)`
 	result, err := db.Exec(query, memberStatus, targetMember)
 	if err != nil {
 		return 0, fmt.Errorf("query execution failed: %w", err)
