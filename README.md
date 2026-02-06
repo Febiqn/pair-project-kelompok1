@@ -22,22 +22,22 @@
 
 to start MySQL
 
-`bash
+`
 sudo service mysql start
 `
-`bash
+`
 sudo service mysql status
 `
 
 to access MySQL
 
-`bash
+`
 sudo mysql -u root -p
 `
 
 insert the playstations
 
-`bash
+`
 INSERT INTO playstations (ps_name) VALUES
 ('PS-A'), 
 ('PS-B'), 
