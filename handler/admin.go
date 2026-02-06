@@ -148,7 +148,7 @@ func showRevenue(filterType string, value string) {
 		reports = append(reports, r)
 	}
 
-	title := "SEMUA WAKTU"
+	title := "All Time"
 	if value != "" {
 		title = value
 	}
