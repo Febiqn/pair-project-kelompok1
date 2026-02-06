@@ -8,6 +8,7 @@ import (
 	"os"
 	"pair-project-kelompok1/entity"
 	"strings"
+	"time"
 )
 
 func AdminFlow() {
@@ -18,7 +19,30 @@ func AdminFlow() {
 		case "Update User Membership":
 			updateMembership(db)
 		case "View Revenue":
-			showRevenue()
+			scanner := bufio.NewScanner(os.Stdin)
+			fmt.Println("\n=== SELECT TIME RANGE ===")
+			fmt.Println("1. Today")
+			fmt.Println("2. Monthly (YYYY-MM)")
+			fmt.Println("3. All Time")
+			fmt.Print("Choice: ")
+
+			scanner.Scan()
+			choice := scanner.Text()
+
+			switch choice {
+			case "1":
+				today := time.Now().Format("2006-01-02")
+				showRevenue("daily", today)
+			case "2":
+				fmt.Print("input month (eg: 2026-06): ")
+				scanner.Scan()
+				month := scanner.Text()
+				showRevenue("monthly", month)
+			case "3":
+				showRevenue("all", "")
+			default:
+				fmt.Println("input not valid")
+			}
 		case "Report Broken PS":
 			ProcessReportAndFix(db)
 		case "View PS Condition":
@@ -35,7 +59,7 @@ func UpdateMembershipQuery(db *sql.DB, memberStatus string, targetMember string)
 		return 0, fmt.Errorf("database connection is nil")
 	}
 
-	// Menggunakan LOWER untuk pencarian case-insensitive agar lebih user-friendly
+	// Use LOWER for case-insensitive search to make it more user-friendly
 	query := `UPDATE users SET membership_status = ? WHERE LOWER(TRIM(user_name)) = LOWER(?)`
 	result, err := db.Exec(query, memberStatus, targetMember)
 	if err != nil {
@@ -48,7 +72,7 @@ func UpdateMembershipQuery(db *sql.DB, memberStatus string, targetMember string)
 func updateMembership(db *sql.DB) {
 	scanner := bufio.NewScanner(os.Stdin)
 
-	fmt.Print("\nEnter the name of Membership you want to update: ")
+	fmt.Print("Enter the name of Membership you want to update: ")
 	if !scanner.Scan() {
 		return
 	}
@@ -65,7 +89,6 @@ func updateMembership(db *sql.DB) {
 		return
 	}
 
-	// Menangkap rowsAffected untuk memberi feedback ke user
 	rows, err := UpdateMembershipQuery(db, memberStatus, targetMember)
 	if err != nil {
 		fmt.Printf("[!] Update failed: %v\n", err)
@@ -80,24 +103,35 @@ func updateMembership(db *sql.DB) {
 }
 
 // showing revenue
-func showRevenue() {
+func showRevenue(filterType string, value string) {
 	if db == nil {
 		fmt.Println("Database not initialized")
 		return
 	}
 
 	query := `
-		SELECT 
-    COALESCE(p.ps_name, 'TOTAL >') AS ps_name, 
-    COUNT(b.bill_id) AS total_trx, 
-    COALESCE(SUM(b.total_amount), 0) AS total_revenue
-	FROM playstations p
-	LEFT JOIN rentals r ON p.ps_id = r.ps_id
-	LEFT JOIN billing b ON r.rental_id = b.rental_id
-	GROUP BY p.ps_name WITH ROLLUP;
-	`
+        SELECT 
+            COALESCE(p.ps_name, 'TOTAL >') AS ps_name, 
+            COUNT(b.bill_id) AS total_trx, 
+            COALESCE(SUM(b.total_amount), 0) AS total_revenue
+        FROM playstations p
+        LEFT JOIN rentals r ON p.ps_id = r.ps_id
+        LEFT JOIN billing b ON r.rental_id = b.rental_id`
 
-	rows, err := db.Query(query)
+	var args []interface{}
+
+	switch filterType {
+	case "daily":
+		query += " WHERE DATE(b.paid_at) = ?"
+		args = append(args, value)
+	case "monthly":
+		query += " WHERE DATE_FORMAT(b.paid_at, '%Y-%m') = ?"
+		args = append(args, value)
+	}
+
+	query += " GROUP BY p.ps_name WITH ROLLUP;"
+
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		fmt.Println("Error executing query:", err)
 		return
@@ -107,20 +141,23 @@ func showRevenue() {
 	var reports []entity.ViewRevenue
 	for rows.Next() {
 		var r entity.ViewRevenue
-		err := rows.Scan(&r.PlaystationName, &r.TotalBooking, &r.TotalRevenue)
-		if err != nil {
+		if err := rows.Scan(&r.PlaystationName, &r.TotalBooking, &r.TotalRevenue); err != nil {
 			fmt.Println("Error scanning row:", err)
 			return
 		}
 		reports = append(reports, r)
 	}
 
-	fmt.Println("\nREVENUE REPORT")
+	title := "SEMUA WAKTU"
+	if value != "" {
+		title = value
+	}
+	fmt.Printf("\nREVENUE REPORT (%s: %s)\n", strings.ToUpper(filterType), title)
 	entity.PrintRevenue(reports)
 }
 
 // report condition PS
-// retrive data ftom DB and
+// retrive data ftom DB
 func FetchAllPlaystations(db *sql.DB) ([]entity.ReportPS, error) {
 	query := `SELECT ps_name, condition_status FROM playstations`
 	rows, err := db.Query(query)
@@ -138,11 +175,11 @@ func FetchAllPlaystations(db *sql.DB) ([]entity.ReportPS, error) {
 		reports = append(reports, r)
 	}
 
-	fmt.Println("\n    Latest Data Playstation    ")
+	fmt.Println("\nLatest Data Playstation")
 	if len(reports) == 0 {
 		fmt.Println("Database is empty.")
 	} else {
-		// Menggunakan helper function yang kamu buat
+
 		entity.PrintReportPS(reports)
 	}
 
@@ -171,7 +208,6 @@ func ProcessReportAndFix(db *sql.DB) {
 		log.Fatalf("Failed to retrieve data: %v", err)
 	}
 
-	// Gunakan bufio scanner agar bisa membaca spasi dan membersihkan newline (\r\n)
 	scanner := bufio.NewScanner(os.Stdin)
 
 	fmt.Print("Enter the name of the PS you want to update.: ")
@@ -182,13 +218,13 @@ func ProcessReportAndFix(db *sql.DB) {
 	scanner.Scan()
 	newCondition := strings.TrimSpace(scanner.Text())
 
-	// Validasi input kosong
+	// Validate input
 	if targetPS == "" || newCondition == "" {
 		fmt.Println("\n[!] Error: PS Name and Condition cannot be empty.")
 		return
 	}
 
-	// 2. Eksekusi Update
+	// execute update
 	_, err = UpdateCondition(db, targetPS, newCondition)
 	if err != nil {
 		fmt.Println("Update failed:", err)
